@@ -1,4 +1,5 @@
 //! 系统跳转不可用时，定位播放器自己的进度控件并向该窗口发送消息。
+use std::time::Duration;
 use windows::{core::{Interface,VARIANT},Win32::{Foundation::*,System::{Com::*,Threading::*},UI::{Accessibility::*,WindowsAndMessaging::{*,EnumChildWindows}},Graphics::Gdi::ScreenToClient}};
 use windows::Win32::UI::HiDpi::{SetThreadDpiAwarenessContext,DPI_AWARENESS_CONTEXT,DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
@@ -106,9 +107,16 @@ pub(super) fn seek(source:&str,position:f64,duration:f64)->bool{
     let apple=super::apple_music::is_source(source);
     let netease=source.eq_ignore_ascii_case("cloudmusic.exe");
     if !apple && !netease && !source.eq_ignore_ascii_case("qqmusic.exe"){return false;}
-    unsafe { (||->Option<()> {
+    unsafe {
+        let hwnd=match window(source){Some(hwnd)=>hwnd,None=>return false};
+        // 网易云最小化或隐藏到托盘时，Chromium 会停用无障碍树，「播放进度调节」不再暴露，
+        // 跳转必然失败。先无激活地恢复显示（SW_SHOWNOACTIVATE 不抢焦点），结束后还原窗口状态。
+        let was_iconic=IsIconic(hwnd).as_bool();
+        let was_visible=IsWindowVisible(hwnd).as_bool();
+        let hidden=netease && (was_iconic || !was_visible);
+        if hidden {ShowWindow(hwnd,SW_SHOWNOACTIVATE);}
+        let result=(||->Option<()> {
         let _dpi=DpiContext(SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
-        let hwnd=window(source)?;
         if !IsWindowEnabled(hwnd).as_bool(){return None;}
         let ui=automation()?;
         let root=ui.ElementFromHandle(hwnd).ok()?;
@@ -118,7 +126,15 @@ pub(super) fn seek(source:&str,position:f64,duration:f64)->bool{
             // 直接设置原生滑块；无需移动鼠标、激活窗口或扫描歌词区域。
             return range.SetValue(position).ok();
         }
-        let bar=if netease {netease_bar(&ui,&root)?}else{qq_bar(&ui,&root,duration)?};
+        // 刚恢复显示或窗口被完全遮挡时，Chromium 重建无障碍树需要一点时间；重试覆盖这个延迟。
+        let bar=if netease {
+            let mut found=None;
+            for _ in 0..5 {
+                if let Ok(root)=ui.ElementFromHandle(hwnd) {if let Some(bar)=netease_bar(&ui,&root){found=Some(bar);break;}}
+                std::thread::sleep(Duration::from_millis(400));
+            }
+            found?
+        }else{qq_bar(&ui,&root,duration)?};
         let debug=std::env::var_os("DAOZAI_SEEK_DEBUG").is_some();
         if debug {
             let r=bar.CurrentBoundingRectangle().map(|r|format!("({},{}) {}x{}",r.left,r.top,r.right-r.left,r.bottom-r.top)).unwrap_or_default();
@@ -150,7 +166,14 @@ pub(super) fn seek(source:&str,position:f64,duration:f64)->bool{
         let up=send(WM_LBUTTONUP,0);
         if debug {eprintln!("[seek-debug] down={down} up={up}");}
         (down&&up).then_some(())
-    })().is_some() }
+        })().is_some();
+        // 点击完成后还原窗口状态：等 CEF 处理完消息再最小化/隐藏，避免打断消息处理。
+        if hidden {
+            std::thread::sleep(Duration::from_millis(300));
+            ShowWindow(hwnd,if was_iconic {SW_MINIMIZE}else{SW_HIDE});
+        }
+        result
+    }
 }
 
 #[cfg(test)]
