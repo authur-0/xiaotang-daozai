@@ -1,5 +1,5 @@
 //! 系统跳转不可用时，定位播放器自己的进度控件并向该窗口发送消息。
-use windows::{core::{Interface,VARIANT},Win32::{Foundation::*,System::{Com::*,Threading::*},UI::{Accessibility::*,WindowsAndMessaging::*},Graphics::Gdi::ScreenToClient}};
+use windows::{core::{Interface,VARIANT},Win32::{Foundation::*,System::{Com::*,Threading::*},UI::{Accessibility::*,WindowsAndMessaging::{*,EnumChildWindows}},Graphics::Gdi::ScreenToClient}};
 use windows::Win32::UI::HiDpi::{SetThreadDpiAwarenessContext,DPI_AWARENESS_CONTEXT,DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 
@@ -28,16 +28,21 @@ unsafe fn matches_player(hwnd:HWND,source:&str)->bool{
 }
 
 unsafe fn window(source:&str)->Option<HWND>{
-    struct Search<'a>{source:&'a str,apple:bool,found:Option<HWND>}
+    struct Search<'a>{source:&'a str,class:Option<&'a str>,found:Option<HWND>}
     unsafe extern "system" fn visit(hwnd:HWND,param:LPARAM)->BOOL{
         let search=&mut *(param.0 as *mut Search<'_>);
-        let mut name=[0u16;80];let n=if search.apple{GetWindowTextW(hwnd,&mut name)}else{GetClassNameW(hwnd,&mut name)};
-        let name=String::from_utf16_lossy(&name[..n.max(0)as usize]);
-        if name==(if search.apple{"Apple Music"}else{"TXGuiFoundation"}) && IsWindowVisible(hwnd).as_bool() && GetWindow(hwnd,GW_OWNER).is_err() && GetWindowTextLengthW(hwnd)>0 && matches_player(hwnd,search.source){search.found=Some(hwnd);return BOOL(0);}
+        // Apple Music 按窗口标题找；其余播放器的顶层窗口类名固定（QQ 为 TXGuiFoundation，网易云为 OrpheusBrowserHost）。
+        let matched=match search.class {
+            Some(class)=>{let mut name=[0u16;80];let n=GetClassNameW(hwnd,&mut name);String::from_utf16_lossy(&name[..n.max(0)as usize])==class}
+            None=>{let mut name=[0u16;80];let n=GetWindowTextW(hwnd,&mut name);String::from_utf16_lossy(&name[..n.max(0)as usize])=="Apple Music"}
+        };
+        if matched && IsWindowVisible(hwnd).as_bool() && GetWindow(hwnd,GW_OWNER).is_err() && GetWindowTextLengthW(hwnd)>0 && matches_player(hwnd,search.source){search.found=Some(hwnd);return BOOL(0);}
         BOOL(1)
     }
     let apple=super::apple_music::is_source(source);
-    let mut search=Search{source:if apple{"AppleMusic.exe"}else{source},apple,found:None};let _=EnumWindows(Some(visit),LPARAM(&mut search as *mut _ as isize));search.found
+    let class=if apple{None}else if source.eq_ignore_ascii_case("cloudmusic.exe"){Some("OrpheusBrowserHost")}else{Some("TXGuiFoundation")};
+    let mut search=Search{source:if apple{"AppleMusic.exe"}else{source},class,found:None};
+    let _=EnumWindows(Some(visit),LPARAM(&mut search as *mut _ as isize));search.found
 }
 
 unsafe fn qq_bar(ui:&IUIAutomation,root:&IUIAutomationElement,duration:f64)->Option<IUIAutomationElement>{
@@ -60,6 +65,27 @@ unsafe fn qq_bar(ui:&IUIAutomation,root:&IUIAutomationElement,duration:f64)->Opt
     None
 }
 
+/// 网易云 CEF 界面把进度条只暴露在原始视图（RawView）里，Control 视图看不到，
+/// 因此不能用 FindFirst，必须用 RawViewWalker 手动遍历。
+unsafe fn netease_bar(ui:&IUIAutomation,root:&IUIAutomationElement)->Option<IUIAutomationElement>{
+    let walker=ui.RawViewWalker().ok()?;
+    unsafe fn find_named(walker:&IUIAutomationTreeWalker,element:&IUIAutomationElement,name:&str,depth:usize)->Option<IUIAutomationElement>{
+        if depth>16 {return None;}
+        if let Ok(current)=element.CurrentName() {if current.to_string()==name {return Some(element.clone());}}
+        let Ok(mut child)=walker.GetFirstChildElement(element)else{return None;};
+        let mut count=0;
+        loop {
+            if let Some(found)=find_named(walker,&child,name,depth+1) {return Some(found);}
+            let Ok(sibling)=walker.GetNextSiblingElement(&child)else{break;};
+            child=sibling;
+            count+=1;
+            if count>2000 {break;}
+        }
+        None
+    }
+    find_named(&walker,root,"播放进度调节",0)
+}
+
 unsafe fn automation()->Option<IUIAutomation>{
     let ui:IUIAutomation=CoCreateInstance(&CUIAutomation8,None,CLSCTX_INPROC_SERVER).ok()?;
     if let Ok(timed)=ui.cast::<IUIAutomation2>(){let _=timed.SetConnectionTimeout(800);let _=timed.SetTransactionTimeout(800);}
@@ -78,7 +104,8 @@ fn apple_value(range:&IUIAutomationRangeValuePattern,duration:f64)->Option<(f64,
 }
 pub(super) fn seek(source:&str,position:f64,duration:f64)->bool{
     let apple=super::apple_music::is_source(source);
-    if !apple && !source.eq_ignore_ascii_case("qqmusic.exe"){return false;}
+    let netease=source.eq_ignore_ascii_case("cloudmusic.exe");
+    if !apple && !netease && !source.eq_ignore_ascii_case("qqmusic.exe"){return false;}
     unsafe { (||->Option<()> {
         let _dpi=DpiContext(SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
         let hwnd=window(source)?;
@@ -91,7 +118,13 @@ pub(super) fn seek(source:&str,position:f64,duration:f64)->bool{
             // 直接设置原生滑块；无需移动鼠标、激活窗口或扫描歌词区域。
             return range.SetValue(position).ok();
         }
-        let bar=qq_bar(&ui,&root,duration)?;
+        let bar=if netease {netease_bar(&ui,&root)?}else{qq_bar(&ui,&root,duration)?};
+        let debug=std::env::var_os("DAOZAI_SEEK_DEBUG").is_some();
+        if debug {
+            let r=bar.CurrentBoundingRectangle().map(|r|format!("({},{}) {}x{}",r.left,r.top,r.right-r.left,r.bottom-r.top)).unwrap_or_default();
+            let sink=FindWindowExW(hwnd,None,windows::core::w!("Chrome_RenderWidgetHostHWND"),None);
+            eprintln!("[seek-debug] hwnd={hwnd:?} enabled={} bar={r} render={sink:?}",IsWindowEnabled(hwnd).as_bool());
+        }
         let target=hwnd;
         // 坐标来自无障碍控件，不依赖窗口位置；不移动鼠标，也不激活播放器。
         let mut p=point(bar.CurrentBoundingRectangle().ok()?,position,duration,5.0)?;
@@ -99,10 +132,23 @@ pub(super) fn seek(source:&str,position:f64,duration:f64)->bool{
         let mut client=RECT::default();GetClientRect(target,&mut client).ok()?;
         if p.x<0 || p.y<0 || (!IsIconic(hwnd).as_bool() && (p.x>=client.right || p.y>=client.bottom)){return None;}
         let lp=LPARAM(((p.y as u32&0xffff)<<16 | (p.x as u32&0xffff))as isize);
-        let send=|msg,buttons|SendMessageTimeoutW(target,msg,WPARAM(buttons),lp,SMTO_ABORTIFHUNG|SMTO_ERRORONEXIT,500,None).0!=0;
+        // Chromium 的输入由 Chrome_RenderWidgetHostHWND 子窗口转发；找不到时退回顶层窗口。
+        let sink={
+            let mut children:Vec<HWND>=Vec::new();
+            unsafe extern "system" fn collect(h:HWND,l:LPARAM)->BOOL{unsafe{let v=&mut *(l.0 as *mut Vec<HWND>);v.push(h);BOOL(1)}}
+            let _=EnumChildWindows(target,Some(collect),LPARAM(&mut children as *mut _ as isize));
+            children.into_iter().find(|child|{
+                let mut name=[0u16;64];let n=GetClassNameW(*child,&mut name);
+                String::from_utf16_lossy(&name[..n.max(0)as usize])=="Chrome_RenderWidgetHostHWND"
+            }).unwrap_or(target)
+        };
+        if debug {eprintln!("[seek-debug] point=({},{}) sink={sink:?} target={target:?}",p.x,p.y);}
+        let send_to=|sink:HWND,msg,buttons|SendMessageTimeoutW(sink,msg,WPARAM(buttons),lp,SMTO_ABORTIFHUNG|SMTO_ERRORONEXIT,500,None).0!=0;
+        let send=|msg,buttons|if send_to(sink,msg,buttons){true}else{send_to(target,msg,buttons)};
         if !send(WM_MOUSEMOVE,0){return None;}
         let down=send(WM_LBUTTONDOWN,1);
         let up=send(WM_LBUTTONUP,0);
+        if debug {eprintln!("[seek-debug] down={down} up={up}");}
         (down&&up).then_some(())
     })().is_some() }
 }

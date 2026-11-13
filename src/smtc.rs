@@ -482,6 +482,22 @@ pub fn seek(seconds:f64,source:&str)->bool {
     let Ok(_lock)=LOCK.lock()else{return false;};
     if source.eq_ignore_ascii_case("kwmusic.exe"){return kuwo::seek(seconds);}
     if matches!(source.to_ascii_lowercase().as_str(),"kugou"|"kugou.exe") && kugou_control::seek(seconds){return true;}
+    // 网易云的 SMTC 不支持进度跳转：直接点击它自己的进度条热区，并用原生日志回读确认。
+    if source.eq_ignore_ascii_case("cloudmusic.exe"){
+        let mut duration=0.0f64;
+        if let Some(media)=netease_playback::Reader::default().poll(){duration=media.duration;}
+        if duration<=0.0 {return false;}
+        let target=seconds.min(duration);
+        if !player_seek::seek(source,target,duration){return false;}
+        let start=std::time::Instant::now();
+        while start.elapsed()<Duration::from_secs(3){
+            std::thread::sleep(Duration::from_millis(120));
+            if let Some(media)=netease_playback::Reader::default().poll(){
+                if (media.position-target).abs()<4.0 {return true;}
+            }
+        }
+        return false;
+    }
     let _apartment=init_winrt();
     use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager as Manager;
     let session=media_result(Manager::RequestAsync).and_then(|mgr|mgr.GetSessions().ok())

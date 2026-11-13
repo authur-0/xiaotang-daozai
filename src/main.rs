@@ -574,7 +574,7 @@ impl eframe::App for Shell {
                 Cmd::Media(t) => {
                     self.media_fast_until=Some(Instant::now()+Duration::from_secs(3));self.media_enabled.set_interval(smtc::POLL_FAST);
                     let source=self.media.lock().map(|media|media.source.clone()).unwrap_or_default();
-                    let message=if source.eq_ignore_ascii_case("cloudmusic.exe"){"网易云暂未适配进度跳转，请在客户端调整"}
+                    let message=if source.eq_ignore_ascii_case("cloudmusic.exe"){"网易云进度跳转未生效，请打开客户端后重试"}
                         else if source.eq_ignore_ascii_case("bodian_pc.exe"){"波点音乐暂未适配进度跳转，请在客户端调整"}
                         else if source.eq_ignore_ascii_case("kwmusic.exe"){"酷我音乐暂未适配进度跳转，请在客户端调整"}
                         else{"播放器未完成跳转，请打开客户端后重试"};
