@@ -76,7 +76,7 @@ fn weather_content_tap_switches_both_ways_with_a_short_transition(){
 #[test]
 fn weather_content_tap_keeps_other_controls_independent(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
-    for (x,y,target) in [(375.0,crate::app::WEATHER_H-7.0,8),(394.0,18.0,8),(367.0,18.0,0),(398.0,88.0,0),(20.0,88.0,7)] {
+    for (x,y,target) in [(375.0,crate::app::WEATHER_H-7.0,8),(394.0,18.0,8),(367.0,18.0,0),(398.0,88.0,0),(20.0,88.0,9)] {
         let mut h=H::new();h.app.settings.pet=false;
         h.media=crate::smtc::NowPlaying{source:"cloudmusic.exe".into(),title:"歌曲".into(),artist:"歌手".into(),playing:true,..Default::default()};
         h.app.weather.snapshot=Some(crate::weather::Snapshot{place:"杭州".into(),temp:19.0,..Default::default()});
@@ -608,8 +608,8 @@ fn v0649_settings_and_mail_accounts_survive_upgrade(){
         crate::model::Settings::load().save();
         let saved=std::fs::read_to_string(directory.join("settings.txt")).unwrap();
         for line in legacy.lines().filter(|line|!line.starts_with("visible_pages=")&&!line.starts_with("page_order=")){assert!(saved.lines().any(|value|value==line),"升级保存不能改变旧设置：{line}");}
-        assert!(saved.lines().any(|value|value=="visible_pages=101111111"),"旧页面开关应保留，并默认开启天气页");
-        assert!(saved.lines().any(|value|value=="page_order=5,2,0,1,3,4,6,7,8"),"旧顺序应保留，并把天气页接在最后");
+        assert!(saved.lines().any(|value|value=="visible_pages=1011111111"),"旧页面开关应保留，并默认开启天气页与健身页");
+        assert!(saved.lines().any(|value|value=="page_order=5,2,0,1,3,4,6,7,9,8"),"旧顺序应保留，健身页插到日程后面");
     }
     std::fs::write(directory.join("mail-accounts.json"),br#"[{"email":"OldUser@qq.com","provider":"qq","enabled":true},{"email":"old@icloud.com","provider":"icloud","enabled":false}]"#).unwrap();
     let accounts=crate::mail::load_accounts();
@@ -2271,7 +2271,7 @@ fn minimal_hover_does_not_catch_tabs_during_collapse() {
 fn music_header_shortcut_returns_from_every_page_without_controlling_playback() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
     for playing in [true,false] {
-        let mut h=H::new();h.app.settings.page_order=[5,2,0,1,3,4,6,7,8];
+        let mut h=H::new();h.app.settings.page_order=[5,2,0,1,3,4,6,7,9,8];
         h.media=crate::smtc::NowPlaying{source:"cloudmusic.exe".into(),title:"Track".into(),artist:"Artist".into(),playing,duration:120.0,..Default::default()};
         for page in 1..crate::app::PAGE_NAMES.len() {
             h.app.show_page(page);h.hover(H::local(300.0,60.0),0.8);h.cmds.clear();
@@ -2326,7 +2326,7 @@ fn wheel_navigation_reaches_every_page_in_both_directions(){
     h.app.shelf.items.clear();h.app.todos.items.clear();
     h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);
     h.hover(H::local(210.0,18.0),0.3);
-    for (delta,pages) in [(-40.0,[1,2,3,4,5,6,7,8,0]),(40.0,[8,7,6,5,4,3,2,1,0])] {
+    for (delta,pages) in [(-40.0,[1,2,3,4,5,6,7,9,8,0]),(40.0,[8,9,7,6,5,4,3,2,1,0])] {
         for page in pages {
             h.wheel(delta);
             assert_eq!(h.app.page,page,"滚轮翻页不能被空的置物架或待办卡住");
@@ -2430,9 +2430,9 @@ fn wheel_handles_small_deltas_without_skipping_pages_on_bursts(){
 }
 
 #[test]
-fn navigation_wraps_between_nine_pages_and_notification_settings_remain_accessible() {
+fn navigation_wraps_between_ten_pages_and_notification_settings_remain_accessible() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
-    h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.click(H::local(21.0,68.0));assert_eq!(h.app.page,8);
+    h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.click(H::local(21.0,68.0));assert_eq!(h.app.page,8,"向左翻页应绕到默认顺序最后一个页面（天气）");
     h.hover(H::local(300.0,60.0),0.8);h.click(H::local(398.0,88.0));assert_eq!(h.app.page,0);
     h.app.open_settings_category(3);assert!(h.app.settings_open);assert_eq!(h.app.settings_tab,6);
 }
@@ -2932,7 +2932,7 @@ fn quota_accounts_switch_independently_and_hide_with_the_page() {
 fn page_visibility_is_saved_and_sets_the_starting_page() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
     let mut h=H::new();
-    assert_eq!(h.app.settings.visible_pages,[true;9]);
+    assert_eq!(h.app.settings.visible_pages,[true;10]);
     assert!(h.app.settings.show_battery);
     h.app.settings.show_battery=false;
     h.app.set_page_visible(0,false);
@@ -2940,17 +2940,17 @@ fn page_visibility_is_saved_and_sets_the_starting_page() {
     h.app.settings.save();
     let settings=crate::model::Settings::load();
     assert!(!settings.show_battery);
-    assert_eq!(settings.visible_pages,[false,true,true,false,true,true,true,true,true]);
+    assert_eq!(settings.visible_pages,[false,true,true,false,true,true,true,true,true,true]);
     let restarted=App::new(&h.ctx,Options{fetch_lyrics:false,pet_idle:1e9});
     assert_eq!(restarted.page(),1);
     assert_eq!(restarted.settings.visible_pages,settings.visible_pages);
     assert!(!restarted.settings.show_battery);
     std::fs::write(crate::model::config_dir().join("settings.txt"),"visible_pages=000000\n").unwrap();
-    assert_eq!(crate::model::Settings::load().visible_pages,[true,false,false,false,false,false,false,false,false]);
+    assert_eq!(crate::model::Settings::load().visible_pages,[true,false,false,false,false,false,false,false,false,false]);
     std::fs::write(crate::model::config_dir().join("settings.txt"),"visible_pages=1000000\n").unwrap();
-    assert_eq!(crate::model::Settings::load().visible_pages,[true,false,false,false,false,false,false,true,true],"旧版页面开关应保留，并开启新增的日程页与天气页");
+    assert_eq!(crate::model::Settings::load().visible_pages,[true,false,false,false,false,false,false,true,true,true],"旧版页面开关应保留，并开启新增的日程页、天气页与健身页");
     std::fs::write(crate::model::config_dir().join("settings.txt"),"visible_pages=invalid\n").unwrap();
-    assert_eq!(crate::model::Settings::load().visible_pages,[true;9]);
+    assert_eq!(crate::model::Settings::load().visible_pages,[true;10]);
 }
 
 #[test]
@@ -2990,7 +2990,7 @@ fn battery_module_can_disable_only_the_power_warning() {
 fn page_visibility_skips_hidden_pages_in_every_navigation_control() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
     let mut h=H::new();
-    for page in [1,3,4,6,7,8] {h.app.set_page_visible(page,false);}
+    for page in [1,3,4,6,7,8,9] {h.app.set_page_visible(page,false);}
     h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);
     for expected in [2,5,0] {
         h.click(H::local(398.0,68.0));
@@ -3019,7 +3019,7 @@ fn page_visibility_moves_away_from_hidden_page_and_keeps_one_page() {
     h.app.set_page_visible(4,false);
     assert_eq!(h.app.page,0);
     assert!(!h.app.is_editing());
-    for page in [0,1,3,5,6,7,8] {h.app.set_page_visible(page,false);}
+    for page in [0,1,3,5,6,7,8,9] {h.app.set_page_visible(page,false);}
     assert_eq!(h.app.page,2);
     h.app.set_page_visible(2,false);
     assert!(h.app.settings.visible_pages[2],"不能关闭最后一个页面");
@@ -5663,13 +5663,13 @@ fn calendar_sync_result_does_not_enqueue_another_sync() {
 fn page_order_persists_and_controls_navigation() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
     let mut h=H::new();
-    h.app.settings.page_order=[5,2,0,1,3,4,6,7,8];
+    h.app.settings.page_order=[5,2,0,1,3,4,6,7,8,9];
     h.app.settings.save();
     let settings=crate::model::Settings::load();
-    assert_eq!(settings.page_order,[5,2,0,1,3,4,6,7,8]);
+    assert_eq!(settings.page_order,[5,2,0,1,3,4,6,7,8,9]);
     let restarted=App::new(&h.ctx,Options{fetch_lyrics:false,pet_idle:1e9});
     assert_eq!(restarted.page(),5);
-    for page in [1,3,4,6,7,8] {h.app.set_page_visible(page,false);}
+    for page in [1,3,4,6,7,8,9] {h.app.set_page_visible(page,false);}
     h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);
     for expected in [5,2,0] {
         h.click(H::local(398.0,68.0));
@@ -5682,7 +5682,7 @@ fn page_order_persists_and_controls_navigation() {
     assert_eq!(h.app.page,5);
     for invalid in ["0,0,1,2,3,4,5,6","8,1,2,3,4,5,6,7","0,1","invalid"] {
         std::fs::write(crate::model::config_dir().join("settings.txt"),format!("page_order={invalid}\n")).unwrap();
-        assert_eq!(crate::model::Settings::load().page_order,[0,1,2,3,4,5,6,7,8]);
+        assert_eq!(crate::model::Settings::load().page_order,[0,1,2,3,4,5,6,7,9,8]);
     }
 }
 
@@ -5709,9 +5709,9 @@ fn page_order_drag_applies_on_release_and_saves() {
     draw(&mut h,vec![egui::Event::PointerMoved(from),button(from,true)]);
     draw(&mut h,vec![egui::Event::PointerMoved(from+egui::vec2(0.0,10.0))]);
     draw(&mut h,vec![egui::Event::PointerMoved(to)]);
-    assert_eq!(h.app.settings.page_order,[0,1,2,3,4,5,6,7,8]);
+    assert_eq!(h.app.settings.page_order,[0,1,2,3,4,5,6,7,9,8]);
     draw(&mut h,vec![button(to,false)]);
-    assert_eq!(h.app.settings.page_order,[1,2,0,3,4,5,6,7,8]);
+    assert_eq!(h.app.settings.page_order,[1,2,0,3,4,5,6,7,9,8]);
     assert_eq!(crate::model::Settings::load().page_order,h.app.settings.page_order);
 }
 
@@ -7649,7 +7649,7 @@ fn wheel_short_lists_turn_pages(){
     h.app.calendar.view.day=day;h.app.calendar.view.month=crate::calendar::month_start(day);h.app.calendar.view.loaded=Some(h.app.calendar.view.month);
     for (count,ended,all_day) in [(0,false,false),(1,false,false),(5,false,false),(8,true,false),(4,false,true)]{
         h.app.calendar.view.events=(0..count).map(|i|crate::mail::Meeting{all_day,title:format!("日程 {i}"),start:if ended{start-7200}else{start+i*60},end:Some(if ended{start-3600}else{start+3600}),at:String::new(),uid:format!("wheel-{i}")}).collect();
-        for (delta,page) in [(-40.0,8),(40.0,6)]{
+        for (delta,page) in [(-40.0,9),(40.0,6)]{
             h.app.show_page(7);h.hover(H::local(300.0,160.0),0.5);h.wheel(delta);
             assert_eq!(h.app.page,page,"日历可见列表未溢出应翻页，条数 {count}");
         }
@@ -7863,7 +7863,11 @@ fn weather_page_shows_the_local_snapshot_and_forecast(){
     for s in &h.shapes{if let egui::Shape::Text(t)=&s.shape{assert!(s.clip_rect.contains_rect(t.visual_bounding_rect()),"天气页文字被裁切：{}",t.galley.text());}}
     if let Some(dest)=std::env::var_os("DAOZAI_WEATHER_PREVIEW_DIR"){
         let dest=std::path::PathBuf::from(dest);std::fs::create_dir_all(&dest).unwrap();
-        let mut raster=feature_raster();shoot_feature(&mut h,&mut raster,&dest,"weather",30,Some(H::local(300.0,60.0)),"2026-11-09");
+        let mut raster=feature_raster();
+        shoot_feature(&mut h,&mut raster,&dest,"weather",30,Some(H::local(300.0,60.0)),"2026-11-09");
+        // 健身页：同一 raster 连拍，避免字体纹理丢失。
+        h.app.show_page(9);
+        shoot_feature(&mut h,&mut raster,&dest,"fitness-page",30,Some(H::local(300.0,60.0)),"2026-11-11");
     }
 }
 
@@ -7875,6 +7879,63 @@ fn weather_page_explains_when_data_is_missing(){
     h.app.show_page(8);h.hover(H::local(300.0,60.0),1.0);
     assert!(h.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t)if t.galley.text()=="天气暂时取不到")));
     assert!(h.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t)if t.galley.text().contains("网络不可用"))));
+}
+
+#[test]
+fn fitness_page_shows_today_part_with_moves_and_tomorrow_hint(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let mut h=H::new();
+    let day=crate::fitness::weekday();
+    h.app.settings.fitness_plan[day]=crate::fitness::PUSH;
+    h.app.show_page(9);h.hover(H::local(300.0,60.0),1.0);
+    assert_eq!(h.app.expanded_height(),216.0,"健身页应与日程页同高");
+    let texts:Vec<_>=h.shapes.iter().filter_map(|s|match &s.shape{egui::Shape::Text(t)=>Some(t.galley.text().to_string()),_=>None}).collect();
+    assert!(texts.iter().any(|t|t.contains(&crate::fitness::WEEKDAYS[day])&&t.contains("推日")),"应显示今天的部位：{texts:?}");
+    assert!(texts.iter().any(|t|t.contains("明天 · ")),"应预告明天：{texts:?}");
+    assert!(texts.iter().any(|t|t=="热身")&&texts.iter().any(|t|t=="训练动作"));
+    assert!(texts.iter().any(|t|t.contains("开合跳")),"热身动作应显示：{texts:?}");
+    assert!(texts.iter().any(|t|t.contains("标准俯卧撑")),"训练动作应显示：{texts:?}");
+    assert!(texts.iter().any(|t|t.contains("3 组 × 12")),"组次应显示：{texts:?}");
+    assert!(texts.iter().any(|t|t.contains("身体一条直线")),"要点应显示：{texts:?}");
+    assert!(h.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Mesh(_mesh))),"动作示意图应渲染（图片以网格绘制）");
+    // 页头不参与滚动，不能被裁切；滚动区内的行按视口裁切是正常行为。
+    for s in &h.shapes{if let egui::Shape::Text(t)=&s.shape{if t.pos.y<52.0{assert!(s.clip_rect.contains_rect(t.visual_bounding_rect()),"健身页页头文字被裁切：{}",t.galley.text());}}}
+    // 内容超出一屏：在滚动区内滚轮只滚动列表，不翻页。
+    h.hover(H::local(300.0,120.0),0.5);h.wheel(-40.0);
+    assert_eq!(h.app.page,9,"健身页滚动区内滚轮不应翻页");
+    h.hover(H::local(300.0,60.0),0.7);
+    h.click(H::local(21.0,68.0));
+    assert_eq!(h.app.page,7,"健身页翻页箭头应与日程页同高（y=68），向左回到日程");
+}
+
+#[test]
+fn fitness_page_shows_recovery_on_rest_day(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let mut h=H::new();
+    let day=crate::fitness::weekday();
+    h.app.settings.fitness_plan[day]=crate::fitness::REST;
+    h.app.show_page(9);h.hover(H::local(300.0,60.0),1.0);
+    let texts:Vec<_>=h.shapes.iter().filter_map(|s|match &s.shape{egui::Shape::Text(t)=>Some(t.galley.text().to_string()),_=>None}).collect();
+    assert!(texts.iter().any(|t|t.contains("休息")),"应显示休息：{texts:?}");
+    assert!(texts.iter().any(|t|t=="恢复建议"));
+    assert!(texts.iter().any(|t|t.contains("静态拉伸")),"恢复动作应显示：{texts:?}");
+    assert!(!texts.iter().any(|t|t=="热身"),"休息日不应显示热身分组");
+}
+
+#[test]
+fn fitness_plan_round_trips_and_rejects_bad_values(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let mut h=H::new();
+    h.app.settings.fitness_plan=[1,2,3,0,3,2,1];
+    h.app.settings.save();
+    assert_eq!(crate::model::Settings::load().fitness_plan,[1,2,3,0,3,2,1]);
+    std::fs::write(crate::model::config_dir().join("settings.txt"),"fitness_plan=1,9,2,0,0,0\n").unwrap();
+    assert_eq!(crate::model::Settings::load().fitness_plan,crate::fitness::DEFAULT_PLAN,"非法计划应回退默认值");
+    // 旧的默认页序（健身排最后）应迁移到日程后面。
+    std::fs::write(crate::model::config_dir().join("settings.txt"),"page_order=0,1,2,3,4,5,6,7,8,9\nfitness_plan=1,2,3\n").unwrap();
+    let migrated=crate::model::Settings::load();
+    assert_eq!(migrated.page_order,[0,1,2,3,4,5,6,7,9,8],"旧默认顺序应把健身挪到日程后面");
+    assert_eq!(migrated.fitness_plan,crate::fitness::DEFAULT_PLAN,"旧的四部位计划值应回退默认值");
 }
 
 #[test]
@@ -7940,6 +8001,33 @@ fn weather_resident_bar_preview(){
         if frame==2{
             raster.buf.fill([0.13,0.13,0.15,1.0]);raster.draw(&h.ctx.tessellate(output.shapes,output.pixels_per_point),output.pixels_per_point);let mut rgba=Vec::new();raster.to_rgba8(&mut rgba);
             image::save_buffer(dest.join("weather-bar-order.png"),&rgba,1200,300,image::ColorType::Rgba8).unwrap();
+        }
+        raster.free_textures(&output.textures_delta);
+    }
+    // 健身页整页预览：默认计划今天练什么就画什么（含滚动条与示意图）。
+    let mut h=H::new();h.app.settings.pet=false;
+    let mut raster=crate::preview_raster::Raster::new(1280,380);
+    for frame in 0..90{
+        let t=frame as f64/60.0;let env=Env{t,clock:"09:41:00".into(),battery:Some(80),charging:false,..Default::default()};
+        let raw=egui::RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,Vec2::new(640.0,190.0))),time:Some(t),viewports:std::iter::once((egui::ViewportId::ROOT,egui::ViewportInfo{native_pixels_per_point:Some(2.0),..Default::default()})).collect(),..Default::default()};
+        let output=h.ctx.run(raw,|ctx|{egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx,|ui|{h.app.frame(ui,ui.max_rect(),&env);});});
+        raster.update_textures(&output.textures_delta);
+        if frame==89{
+            raster.buf.fill([0.09,0.11,0.18,1.0]);raster.draw(&h.ctx.tessellate(output.shapes,output.pixels_per_point),output.pixels_per_point);let mut rgba=Vec::new();raster.to_rgba8(&mut rgba);
+            image::save_buffer(dest.join("fitness-page.png"),&rgba,1280,380,image::ColorType::Rgba8).unwrap();
+        }
+    }
+    // 设置页「健身」分类预览：周计划选择器。
+    let mut h=H::new();
+    let mut raster=crate::preview_raster::Raster::new(1200,900);
+    for frame in 0..3{
+        let raw=egui::RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,Vec2::new(600.0,450.0))),time:Some(frame as f64),
+            viewports:std::iter::once((egui::ViewportId::ROOT,egui::ViewportInfo{native_pixels_per_point:Some(2.0),..Default::default()})).collect(),..Default::default()};
+        let output=h.ctx.run(raw,|ctx|{egui::CentralPanel::default().show(ctx,|ui|{h.app.fitness_settings(ui);});});
+        raster.update_textures(&output.textures_delta);
+        if frame==2{
+            raster.buf.fill([0.13,0.13,0.15,1.0]);raster.draw(&h.ctx.tessellate(output.shapes,output.pixels_per_point),output.pixels_per_point);let mut rgba=Vec::new();raster.to_rgba8(&mut rgba);
+            image::save_buffer(dest.join("fitness-settings.png"),&rgba,1200,900,image::ColorType::Rgba8).unwrap();
         }
         raster.free_textures(&output.textures_delta);
     }
@@ -8373,7 +8461,7 @@ fn background_services_follow_the_module_switch(){
 
 #[test]
 fn every_module_settings_tab_maps_to_its_page(){
-    let titles=["常规","音乐与歌词","专注","健康提醒","待办","置物","通知","邮箱","日程","关于","页面管理","AI 额度","天气"];
+    let titles=["常规","音乐与歌词","专注","健康提醒","待办","置物","通知","邮箱","日程","关于","页面管理","AI 额度","天气","健身"];
     let mut pages:Vec<_>=(0..titles.len()).filter_map(crate::extras::settings_tab_module).collect();
     for tab in 0..titles.len() {
         if let Some(page)=crate::extras::settings_tab_module(tab) {assert!(crate::app::PAGE_NAMES[page].chars().next()==titles[tab].chars().next(),"{} ↔ {}",titles[tab],crate::app::PAGE_NAMES[page]);}
